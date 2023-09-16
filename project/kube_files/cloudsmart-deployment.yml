@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudsmart-deployment
+  labels:
+     app: cloudsmart
+
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudsmart
+
+  template:
+    metadata:
+      labels:
+        app: cloudsmart
+    spec:
+      containers:
+      - name: cloudsmart-c
+        image: savita2009/cs1:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1

@@ -1,0 +1,10 @@
+---
+- hosts: minikube
+  user: ubuntu
+
+  tasks:
+    - name: deploy cloudsmart app  on kubernetes
+      command: kubectl apply -f cloudsmart-deployment.yml
+
+    - name: create service for registered app
+      command: kubectl apply -f cloudsmart-service.yml

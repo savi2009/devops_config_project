@@ -1,0 +1,11 @@
+---
+- hosts: ansible
+
+  tasks:
+  - name: create docker image
+    command: docker build -t savita2009/cs1:latest .
+    args:
+     chdir: /opt/docker
+
+  - name: to push docker image
+    command: docker push savita2009/cs1:latest

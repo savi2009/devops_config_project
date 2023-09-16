@@ -1,0 +1,348 @@
+3 VM's required
+On all Vm's Do following steps
+
+A.Assign IP address and hostname to each system
+Setup network Connectivity between all system
+
+B.Create user ubuntu(any_name) on all system's and assign Sudo permissions to it
+
+C.Install and configure ssh service on all systems
+Setup Passwordless ssh from all systems to all system using ubuntu user
+*passwordless ssh from ansible to ansible using ubuntu user
+
+
+Jenkins-server=192.168.204.100
+Docker-Ansible=192.168.204.141
+Minikube=192.168.204.144
+
+=========================================================
+A. Docker-Ansible Part
+Step-1
+On Docker-Ansible system(docker-Ansible=192.168.204.141)
+
+Install docker
+Install ansible
+
+Configure ansible
+Step-2
+Edit /etc/ansible/hosts
+[jenkins]
+192.168.204.100
+
+[ansible]
+192.168.204.141
+
+[minikube]
+192.168.204.144
+
+Test ansible communication
+
+ubuntu@ansible-server:/opt/docker$ ansible -m ping all
+**Must be success
+
+
+Step-3 
+Create directory /opt/docker
+Set owner and groupowner as ubuntu
+ubuntu@ansible-server:~/Desktop$ ls -ld /opt/docker/
+drwxrwxrwx 2 ubuntu ubuntu 4096 Aug 11 14:37 /opt/docker/
+
+Step-4 Create required files in /opt/docker
+
+ubuntu@ansible-server:~/Desktop$ cd /opt/docker/ 
+ubuntu@ansible-server:/opt/docker$nano Dockerfile 
+FROM tomcat
+RUN cp -R /usr/local/tomcat/webapps.dist/* /usr/local/tomcat/webapps
+COPY ./*.war /usr/local/tomcat/webapps
+save and exit
+
+Write Playbook to create docker image and upload to dockerhub (Change image_name and dockerhub_id)
+ubuntu@ansible-server:/opt/docker$ nano image_create.yml 
+---
+- hosts: ansible
+
+  tasks:
+  - name: create docker image
+    command: docker build -t savita2009/cs:latest .
+    args:
+     chdir: /opt/docker
+
+  - name: to push docker image
+    command: docker push savita2009/cs1:latest
+save and exit
+
+
+ubuntu@ansible-server:/opt/docker$ ls
+ Dockerfile  image_create.yml
+
+
+Write playbook for Deploying cloudsmart-deployment and exposing service
+ubuntu@ansible-server:/opt/docker$ nano kube_deploy.yml
+---
+- hosts: minikube
+  user: ubuntu
+
+  tasks:
+    - name: deploy cloudsmart app  on kubernetes
+      command: kubectl apply -f cloudsmart-deployment.yml
+
+    - name: create service for registered app
+      command: kubectl apply -f cloudsmart-service.yml
+
+save and exit
+
+ubuntu@ansible-server:/opt/docker$ ls
+ Dockerfile  image_create.yml  kube_deploy.yml
+
+=========================================================
+Part-B 
+
+On Minikube  (Minikube=192.168.204.135) system
+
+Step-1
+Install minikube
+start minikube
+minikube ip
+Install prometheus and Grafana 
+Expose required services for promethus and grafana
+
+Step-2
+In ubuntu home dir
+create file to deploy cloudsmart app
+ubuntu@mini:~$ nano cloudsmart-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudsmart-deployment
+  labels:
+     app: cloudsmart
+
+
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudsmart
+
+  template:
+    metadata:
+      labels:
+        app: cloudsmart
+    spec:
+      containers:
+      - name: cloudsmart
+        image: savita2009/cs1:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+save and exit
+
+Excute file to see if all working
+ubuntu@mini:~$ kubectl apply -f cloudsmart-deployment.yml 
+
+ubuntu@mini:~$ kubectl get pods
+>> 2 pods must be creating
+
+Cretae file to expose service for cloudsmart applications
+ubuntu@mini:~$ nano cloudsmart-service.yml 
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudsmart-service
+  labels:
+    app: cloudsmart
+spec:
+  selector:
+    app: cloudsmart
+
+  ports:
+    - port: 8080
+      targetPort: 8080
+
+  type: LoadBalancer
+
+save and exit
+
+buntu@mini:~$ kubectl apply -f cloudsmart-service.yml
+
+ubuntu@mini:~$ kubectl get svc | grep cloudsmart
+cloudsmart-service                    LoadBalancer   10.106.185.17    <pending>     8080:31928/TCP   110m
+
+On browser>> url >> http://192.168.49.2:31928/cloudsmart/
+see if container is accessible
+
+** Deployment and service exposing is successfull!!
+
+Step-3
+Now delete Deployment and service
+ubuntu@mini:~$ kubectl delete deployment/cloudsmart-deploymant
+
+ubuntu@mini:~$kubectl delete svc cloudsmart-service
+
+
+ubuntu@mini:~$ ls
+cloudsmart-deployment.yml  Desktop    Downloads  Pictures  snap       Videos
+cloudsmart-service.yml     Documents  Music      Public    Templates
+
+==========================================================
+Part-c
+
+On Jenkins-server
+
+Step-1
+Install Git
+Install Java
+Install Maven
+Install Jenkins
+
+Step-2 
+Access Jenkins through browser and 
+
+Install plugins 
+Manage jenkins>manage plugins>>available>>install 
+   	publish over ssh
+   	github integration
+   	maven integration
+
+Step-3 Configuration settings
+manage jenkins> System configuration> system> Scroll down at bottom
+Publish over SSH >>add >> name:ansible-docker
+                          hostname: 192.168.204.141
+                          uname:ubuntu
+                         remote Directory: //opt//docker
+click on advaced > select Use password authentication
+ password: of ubuntu user
+test configuration >> success>> apply and save 
+
+Step-4
+To create cloudsmart-CI project 
+dashboard>new item> project2-cloudsmart-CI>maven_project
+    SCM >> Git> https://github.com/savi2009/project1
+    Build>> clean install
+    post-build Actions>> SSH-server 
+                         name>docker
+                         transfers>>
+                            Source files> target/*.war
+                            Remove prefix > //opt//docker
+  apply and save
+Build job >> success
+
+
+Execute (build now) till here
+Build job >> success
+
+Go to Ansible Server 
+cd /opt/docker
+ls 
+>>cloudsmart.war must be there 
+  Till this job is successfull!!!!
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
+Go to Ansible server and execute image-crate playbook to check if image is creating 
+
+ubuntu@ansible-server:/opt/docker$ansible-playbook image-create.yml
+
+Also check from dockerhub website also if image is refreshed
+
+If successfully done
+*Remove Docker image from local system
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Step-5 edit project2-cloudsmart-CI To create image autmatically 
+>> Playbook need to be executed by jenkins
+
+project2-cloudsmart-CI>post-build action
+EXEC command:
+    ansible-playbook /opt/docker/image-create.yml
+   {{and enable poll scm if disable}}
+apply and save
+
+
+Step-6 
+Create Deployment phase 
+To deploy continuosly we need to deploy container on kubernetes cluster
+
+
+jenkins>new job>name:cloudsmart-cd job>freestyle >> post-build actions>>
+   send builds artifact over ssh>
+                          Name: docker
+            Exec Command: 
+            ansible-playbook /opt/docker/kube_deploy.yml
+
+in build_trigger section >> Build after other projects are built
+                                Projects to watch 
+                    select>  Project2-cloudsmart-ci
+save and apply 
+
+Build  manually as of now Project2-cloudsmart-ci
+Once CI pipeline Executes; CD pipeline will be triggered.
+
+
+Step-7:- Check for successful deployment in minikube
+Check on Minikube for pods and service if its there
+ubuntu@mini:~$ kubectl get deployment
+>> cloudsmart-deployment must be there
+
+ubuntu@mini:~$ kubectl get pods
+>> wait till container created (may take some time)
+
+ubuntu@mini:~$ kubectl get svc
+>> check exposed port no of containers
+
+Go to browser and put new port no and refresh it
+Cloudsmart application is running!!!
+
+*Delete services deployment and pod
+
+Step-8 Final automated execution
+Go to Githb and make some changes in index.html
+Commit and observe from jenkins 
+    - cloudsmart-ci pipeline build and executes
+    - Cloudsmart-CD pipeline triggered and successfull message shown
+
+Wait for some time; as images is upoading and downloading from dockerhub
+
+Check on minikube if deployment, pods and svc created
+
+Check from grafana tab also for monitoring 
+
+
+!!!Completed Whole Automated DevOPs process for Cloudsmart application Successfully!!! 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
